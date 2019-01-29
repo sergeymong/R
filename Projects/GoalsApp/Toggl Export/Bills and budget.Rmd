@@ -1,0 +1,76 @@
+---
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F)
+```
+```{r, include=FALSE}
+
+require(lubridate)
+require(dplyr)
+require(formattable)
+require(togglr)
+
+read_toggle <- function(period){
+  set_toggl_api_token("1ade723dc3b40ea9aeafc0c30758d199")
+  cost <- 750
+  data <- get_time_entries(since = period[[1]], until = period[[2]])
+  data <- data[c(1, 4, 5, 6, 11, 15)]
+  names(data) <- c('Date', 'Duration', 'Project', 'Description', 'Billable', 'Tag')
+  data$Billable <- ifelse(data$Project == "Работа", 'TRUE', 'FALSE') 
+  data$Date <- as.Date(data$Date)
+  data$Time <- hms::hms(data$Duration)
+  data$Duration <- seconds_to_period(data$Duration)
+  data$Amount <- currency(ifelse(data$Billable == 'TRUE', 
+                                 hour(data$Duration) * cost + 
+                                   minute(data$Duration)/60 * cost + 
+                                   second(data$Duration)/60/60 * cost,
+                                 0), 'RUB ')
+  data <- na.exclude(data)
+  return(data)
+}
+back_to_week <- function(which_week=1, weeks=1){
+  d1 <- which_week * lubridate::days(7)
+  d2 <- weeks * lubridate::days(7)
+  from <- Sys.time() - d1
+  to <- from + d2
+  return(c(start=from, end=to))
+}
+how_much <- function(data){
+  data %>%
+    group_by(Date, Description) %>% 
+    summarise(Price = round(sum(Amount)), Hours = sum(Time)) %>% 
+    ungroup() %>% 
+    select(Description, Price, Hours) %>% 
+    filter(Price > 0) %>% 
+    janitor::adorn_totals()
+}
+```
+
+## Счёт `r day(back_to_week()[[1]])`.`r ifelse(month(back_to_week()[[1]]) < 10, paste0("0",month(back_to_week()[[1]])), month(back_to_week()[[1]]))` -- `r day(back_to_week()[[2]])`.`r ifelse(month(back_to_week()[[2]]) < 10, paste0("0",month(back_to_week()[[2]])), month(back_to_week()[[1]]))`.`r year(back_to_week()[[1]])`
+```{r}
+data <- read_toggle(back_to_week())
+costs <- how_much(data)
+knitr::kable(costs)
+```
+
+## Бюджет
+
+На основе того, что на прошлой неделе ты заработал **`r costs[[2]][nrow(costs)]`**, то распределение бюджета на **`r day(back_to_week(-1, -1)[[2]])`.0`r month(back_to_week(-1, -1)[[2]])` -- `r day(back_to_week(-1, -1)[[1]])`.0`r month(back_to_week(-1, -1)[[1]])`.`r year(back_to_week(-1, -1)[[1]])`** такое:
+```{r}
+if(costs[[2]][nrow(costs)]/7/2 < 250) {
+  expences <- 250*7
+  safety <- ifelse(costs[[2]][nrow(costs)] - expences*7 <= 0, 0, (costs[[2]][nrow(costs)] - expences*7)/2)
+  purchases <- ifelse(costs[[2]][nrow(costs)] - expences*7 <= 0, 0, (costs[[2]][nrow(costs)] - expences*7)/2)
+} else {
+  expences <- ifelse(costs[[2]][nrow(costs)]/7/2 >= 500, 500*7, costs[[2]][nrow(costs)]/2)
+  rest <- costs[[2]][nrow(costs)] - expences
+  safety <- ifelse(rest <= 0, 0, rest/2)
+  purchases <- ifelse(rest <= 0, 0, rest/2) 
+}
+
+budget <- data.frame("Куда" = c("На неделю", "Подушка безопасности", "Покупки"), "Сумма" = c(expences, safety, purchases), "На день" = c(expences/7, safety/7, purchases/7))
+budget <- janitor::adorn_totals(budget)
+budget <- dplyr::rename(budget, "В день" = "На.день")
+knitr::kable(budget)
+```
