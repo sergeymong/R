@@ -22,7 +22,7 @@ qplot(data=h, log(carat), log(price))
 bg <- qplot(data=h, log(carat), log(price))
 bg + geom_hex() # график, который показывает количество наблюдений того или иного рода
 
-f <- read.csv("flats_moscow.txt", sep = "\t", header = T, dec = ".")
+f <- read.csv("./Datasets/flats_moscow.txt", sep = "\t", header = T, dec = ".")
 glimpse(f)
 qplot(data = f, totsp, price)
 

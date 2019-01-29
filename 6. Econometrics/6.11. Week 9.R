@@ -5,7 +5,7 @@ library(ggplot2)
 library(sandwich)
 library(ivpack)
 
-h <- read.csv("flats_moscow.txt", header = T, sep = '\t', dec = ".")
+h <- read.csv("./Datasets/flats_moscow.txt", header = T, sep = '\t', dec = ".")
 glimpse(h)
 
 

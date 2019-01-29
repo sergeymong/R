@@ -4,7 +4,7 @@ library(ggplot2)
 library(lmtest)
 library(sandwich)
 
-data <- rlms_read("r22i_os26c.sav")
+data <- rlms_read("./Datasets/r22i_os26c.sav")
 sdata <- data %>%
   select(rj13.2, rh6, rh5, r_diplom, status, rj1.1.1) %>%
   mutate(age = 2013-rh6) %>%

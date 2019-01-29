@@ -7,7 +7,7 @@ library(ggplot2)
 install.packages("Ecdat")
 library(Ecdat)
 
-h <- read.table("flats_moscow.txt", header = T)
+h <- read.table("./Datasets/flats_moscow.txt", header = T)
 
 qplot(totsp, price, data=h) #то, как выглядит гетероскедастичность
 

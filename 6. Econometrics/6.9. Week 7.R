@@ -8,7 +8,7 @@ library(lmtest)
 library(broom)
 
 options(stringsAsFactors = F)
-t <- read.csv("titanic3.csv")
+t <- read.csv("./Datasets/titanic3.csv")
 
 glimpse(t)
 
@@ -81,7 +81,7 @@ mosaic(data=HairEyeColor,~Hair+Sex+Eye, shade=TRUE)
 mosaic(data=HairEyeColor,~Sex+Eye+Hair, shade=TRUE)
 
 
-t <- read.csv("titanic3.csv")
+t <- read.csv("./Datasets/titanic3.csv")
 t <- mutate(t, sex=as.factor(sex), pcalss = as.factor(pclass),
             survived = as.factor(survived))
 model <- glm(data=t, survived ~ age  + sex + fare + sibsp, family = "binomial"(link = "logit"))
@@ -130,7 +130,6 @@ vcov(model6)
 
 -(-0.0663291/(2*0.0007399))
 
-
 d <- dplyr::select(t, age, sibsp, sex, fare,survived)
 
 d_clean <- na.omit(d)
@@ -145,13 +144,7 @@ d_clean$probs <- predict(model, type="response")
 
 d_clean
 
-
-
 table(d_clean$survived, d_clean$probs > 0.65)
 
 
 vcov(model)
-
-
-
-

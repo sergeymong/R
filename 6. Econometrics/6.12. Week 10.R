@@ -15,7 +15,7 @@ library(sandwich)
 library(forecast)
 
 
-f <- read.table("flats_moscow.txt", header = T, sep="\t", dec = ".")
+f <- read.table("./Datasets/flats_moscow.txt", header = T, sep="\t", dec = ".")
 glimpse(f)
 
 #quantile regression from quantreg
@@ -97,7 +97,7 @@ vcovHC(model, type = "HC3")
 vcovHC(model, type = "HC1")
 vcovHC(model, type = "HC0")
 
-h <- read.csv("titanic3.csv")
+h <- read.csv("./Datasets/titanic3.csv")
 model <- glm(data=h, survived ~ age + I(age^2) + sex + pclass + sibsp, family = binomial(link = "probit"), x = T)
 summary(model)
 vcov(model)
@@ -155,11 +155,5 @@ predict(model2, test)
 qt(0.95, df = 1000)
 
 
-
-
 2^2*4.5 + 3.4^2*0.05 + 2*2*3.4*(-0.23) + 1200
-
-
-
-
 
