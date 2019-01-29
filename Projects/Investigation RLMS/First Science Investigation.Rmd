@@ -1,0 +1,168 @@
+---
+title: "First Science Investigation"
+author: "Roman Mosolov & Sergey Sidorov"
+date: "12/30/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE, cache=TRUE}
+knitr::opts_chunk$set(echo = F)
+require(rlms)
+require(dplyr)
+require(lubridate)
+require(ggplot2)
+require(sjlabelled)
+raw_data <- rlms_read('r26iall26b.sav')
+```
+
+```{r}
+sub_health <- raw_data %>% 
+  select(vh7.1, vh7.2, region, status, vj69.9c, vm1, vm2, vh5, vm3, vl5.0, vl5, vl66, vj72.11) %>% 
+  transmute(date = dmy(paste0(vh7.1,".", vh7.2,".","2017")),
+            region = as_label(region), 
+            sex = as_label(vh5), 
+            age = 2017 - vj69.9c,
+            age_category = cut(age, c(0, 17, 24, 35 , 50, 65, 105)),
+            weight = vm1,
+            height = vm2,
+            BMI = weight/(height/100)^2,
+            BMI_indicator = ifelse(BMI < 18.5, 'Недовес',
+                                   ifelse(BMI > 18.5 & BMI < 24.9, 'Нормальный',
+                                   ifelse(BMI > 25 & BMI < 29.9, 'Лишний вес', 'Ожирение'))),
+            health = as_label(vm3),
+            doctor_visit = as_label(vl5.0),
+            recent_health_problems = as_label(vl5),
+            pills_amount = as_label(vl66),
+            additional_knowlege = as_label(vj72.11))
+
+levels(sub_health$age_category) <- c("0-17", "18-24", "25-35", "36-50", "51-65", "66+")
+```
+
+## Общая сводка
+ - Данные по здоровью людей, для того, чтобы исследовать подробно этот аспект. 
+ - Вычислили BMI и его уровни для понимания здоровья и уровней риска, связанных с весом.
+ - Убрали NA из графика по BMI
+ - Получили возраст путём преобразования из даты рождения
+ - Получили дату и дни недели проведения из дня и месяца проведения опроса
+ - Добавили возрастные категории
+
+```{r}
+table(sub_health$age_category, sub_health$sex)
+```
+
+```{r}
+sub_health %>% 
+  group_by(age_category) %>% 
+  summarise(mean_weight  = round(mean(weight, na.rm = T)), 
+          median_weight = median(weight, na.rm = T))
+
+sub_health[sub_health$age > 28 & sub_health$age < 45, ] %>% 
+  group_by(age) %>% 
+  summarise(mean_weight  = round(mean(weight, na.rm = T)), 
+          median_weight = median(weight, na.rm = T))
+
+sub_health[sub_health$age > 35 & sub_health$age < 55 & sub_health$sex == 'ЖЕНСКИЙ', ] %>% 
+  group_by(age) %>% 
+  summarise(mean_weight  = round(mean(weight, na.rm = T)), 
+          median_weight = median(weight, na.rm = T))
+
+
+table(sub_health$age_category, 
+      sub_health$BMI_indicator,
+      sub_health$sex)
+
+feel <- table(sub_health$health, sub_health$BMI_indicator)
+feel <- feel[-c(6:8), ]
+feel
+
+```
+```{r}
+table(sub_health$doctor_visit, sub_health$BMI_indicator, sub_health$recent_health_problems)
+
+lm(data=sub_health, doctor_visit ~ recent_healt_problems))
+
+```
+```{r}
+table(sub_health$recent_health_problems, sub_health$BMI_indicator)[-c(3:5), ]
+```
+
+
+## 
+
+
+```{r}
+subset_BMI <- sub_health %>% 
+  group_by(BMI_indicator, health, sex) %>% 
+  filter(!is.na(health), !is.na(BMI_indicator)) %>% 
+  summarise(peoples = n()) %>% 
+  arrange(-peoples)
+  
+ggplot(subset_BMI, aes(x= health, y = peoples))+
+  geom_point()+
+  geom_line()+
+  facet_grid(sex~BMI_indicator)+
+  # scale_y_continuous(breaks = c(0, 1, 2, 3, 4, 5, 6))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# по BMI сделать уточн
+
+```
+
+```{r}
+sub_health %>% 
+  group_by(BMI_indicator, health, sex) %>% 
+  filter(!is.na(health), !is.na(BMI_indicator)) %>% 
+  summarise(peoples = n()) %>% 
+  arrange(-peoples)
+```
+
+```{r}
+table(sub_health$BMI_indicator)
+
+sum(sub_men$BMI_indicator == 'Normal', na.rm = T) / sum(sub_men$BMI_indicator != 'Normal', na.rm = T)
+sum(sub_men$BMI_indicator == 'Obesity', na.rm = T) + sum(sub_men$BMI_indicator == 'Overweight', na.rm = T)
+(sum(sub_men$BMI_indicator == 'Obesity', na.rm = T) + sum(sub_men$BMI_indicator == 'Overweight', na.rm = T) - sum(sub_men$BMI_indicator == 'Normal', na.rm = T))/sum(sub_men$BMI_indicator == 'Normal', na.rm = T)
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+# В какие дни будние или выходные проводился опрос
+sub_men$type_of_weekday <- ifelse(weekdays(sub_men$date) == 'Saturday' |  weekdays(sub_men$date) == 'Sunday', 
+                                  'Weekend', 'Workday')
+sub_men$weekday <- weekdays(sub_men$date)
+
+weekends_distrubtion <- table(sub_men$type_of_weekday) 
+# max(sub_men$date) - min(sub_men$date) 
+weekends_distrubtion[1] <- weekends_distrubtion[1]/2/363
+weekends_distrubtion[2] <- weekends_distrubtion[2]/5/363
+knitr::kable(weekends_distrubtion)
+
+```
+
+Плотность социологического исследования составляла `r round(weekends_distrubtion[[2]], 2)` опросов в один рабочий день и `r round(weekends_distrubtion[[1]], 2)` опросов в один выходной день.
+
+
+```{r}
+# work 
+# vi1, vj1.1.1, vj1.1.3, vj2cod08,
+# vj4.1, vj6, vj6.1a, vj6.1b, vj10, vj10.3, vj11.1, vj13.2, vj14, vj18.2, vj19, vj21a, 
+# vj23, vj29c.1, vj31, vj32, vj33cod08, vj36.1a, vj40, vj41.1, vj49, 
+
+# случайный заработок
+# vj56.11c08, vj56.12c08, vj56.13c08, vj58, vj80.1, vm418, vj197, 
+# самооценка
+# vj62, vj64, vj65, vj66.1, vj72.5a, vj72.5b, vj72.5c, vj72.5j, vj72.5a2, vj72.5a3б vj72.5a4
+# профессионализм, доп образование
+# vj69.1, vj60.1, vj72.11, vj72121c, vj72121b, vj72121d, vj260 
+# соцсети
+# vj401.1a, vj401.2a, vj401.3a, vj401.4a, vj401.5a, 
+# 
+# здоровье
+# vl5.0, vl83, vl5, vl66, # 
+```
+
