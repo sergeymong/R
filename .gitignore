@@ -13,3 +13,9 @@ Projects/First analysis/GPDataAnalysis_cache
 Projects/First analysis/GPDataAnalysis_files
 Projects/Investigation RLMS/First_Science_Investigation_cache
 Projects/Investigation RLMS/First_Science_Investigation_files
+.DS_Store
+*.RData
+*.rdb
+*.rdx
+Projects/Black Friday/BlackFridayAnalysis_cache/html/__packages
+.DS_Store
