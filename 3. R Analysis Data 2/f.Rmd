@@ -1,0 +1,108 @@
+---
+title: "Analysing trends in Canadian glacers mass"
+author: "Sergey Sidorov"
+date: "11/18/2018"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+    css: styles.css
+  pdf_document:
+    toc: yes
+    keep_tex: yes
+bibliography: bibl.bib
+urlcolor: blue
+params:
+  filename: glacier.csv
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggvis)
+options(scipen = 0, digits = 3)
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+## Introduction
+
+This is a first example of my tiny-investigation. The algorithm is taken from @SidorovAntonov_RandomCubatures. For more details of data you can find on <http://open.canada.ca/en/open-data>[^1].
+
+[^1]: Here is the [direct link](https://github.com/tonytonov/Rcourse/blob/master/R markdown/demos/glacier.csv) to data download.
+
+```{r, include=F}
+glaicer <- read.csv(params$filename, na.strings = "..", comment.char = "#")
+library(dplyr)
+```
+
+The data set contains `r nrow(glaicer)` measurments of `r nlevels(glaicer$GEO)` Canadian glaicer mass balance, collected `r min(glaicer$Ref_Date)` till `r max(glaicer$Ref_Date)`.
+
+Namely, these file includes these glacers:
+
+```{r}
+levels(glaicer$GEO)
+```
+
+Among six investigated glaciers the most shorly history has `r glaicer %>%  group_by(GEO) %>% summarise(n = n()) %>%  arrange(n) %>% filter(row_number()==1) %>% select(GEO)`. 
+
+Meanwhile median value measurments glacier near about zero namely `r glaicer %>%  group_by(GEO, MEASURE) %>% summarise(med = median(Value, na.rm = T)) %>% arrange(desc(med)) %>% head(1) %>% select(GEO)`. 
+
+Just one NA value measurment has `r glaicer$GEO[is.na(glaicer$Value)]`.
+
+## Hypotesis
+We are interested in finding out wheter there is a stat.significant change in mass balance over the observed time period. For these purposes we use **R** version (`r getRversion()`) and an appropriate stat test called _t-test_: $$t = \frac{\overline{x} - mu_0}{s/\sqrt{n}}.$$
+
+The workflow is as follows:
+
+1. Read the file.
+2. Run t-test for each glacier and collect p-values.
+3. Support the evidence with 
+    + a table of result;
+    + a plot of could help demonstrate results.
+
+## Analysis 
+```{r analysis, cache=T}
+glaicer <- glaicer %>% 
+  select(Ref_Date, GEO, MEASURE, Value) %>% 
+  filter(MEASURE == "Annual mass balance") %>% 
+  separate(GEO, c("Name", "Location"), sep = " - ")
+
+#descript analytics
+g1 <- glaicer %>% 
+  group_by(Name) %>% 
+  summarise(YearsObserved = n(),
+            MeanChange = mean(Value, na.rm = T),
+            WorstChange = mean(Value, na.rm = T),
+            WorstYear = Ref_Date[which.min(Value)])
+
+#t-test
+g2 <- glaicer %>% 
+  group_by(Name) %>% 
+  do({
+    tt <- t.test(.$Value, alternative = "less", mu = 0, conf.level = .99)
+    data.frame(PValue = tt$p.value, ConfidenceLimit = tt$conf.int[2])
+  })
+
+#group our computing into one table
+left_join(g1, g2, by = "Name") %>% 
+  knitr::kable(caption = "Descriptive stats and confidence intervals",
+               digits = c(0,0,2,0,0,10,2)) #here we indicate, how much digits will be after dot
+```
+
+```{r ggplot, fig.width=10, fig.width=10}
+#ggplot
+# ggplot(glaicer, aes(Ref_Date, Value))+
+#   geom_line()+
+#   geom_hline(data = g1, aes(yintercept = MeanChange),
+#              color = "red", linetype = "dashed", alpha = 0.9)+
+#   facet_wrap(~ Name, nrow = 2)
+
+ggvis(glaicer, ~Ref_Date, ~Value, stroke = ~Name) %>% 
+  layer_lines()
+
+```
+
+The conductet analysis supports the evidence that Canadian glaicers are <u>melting</u>.
+
+## Bibliography
