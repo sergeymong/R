@@ -1,0 +1,351 @@
+---
+title: "Анализ приложений в Google Play Market"
+author: "Сергей Сидоров"
+date: "11/18/2018"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document: default
+lang: russian
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F)
+```
+
+## Введение
+```{r, include=F}
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(corrplot)
+
+# импорт сырых данных
+data_raw <- read.csv("googleplaystore.csv", stringsAsFactors = F)
+
+# преобразуем данные
+data_raw$Reviews <- as.numeric(data_raw$Reviews)
+
+data_raw$Category <- as.factor(data_raw$Category)
+
+data_raw$Size <- gsub("Varies with device", NA, data_raw$Size)
+data_raw$Size <- gsub("[:digits:]*k", "", data_raw$Size)
+t <- grepl(pattern = "[:digits:]*M", data_raw$Size)
+data_raw$Size <- gsub("[:digits:]*M", "", data_raw$Size)
+data_raw$Size <- as.numeric(data_raw$Size)
+data_raw$Size[t] <- data_raw$Size[t] * 1024
+
+data_raw$Installs <- as.numeric(gsub("\\D", "", data_raw$Installs))
+
+data_raw$Type <- as.factor(gsub("NaN|0", "Free", data_raw$Type))
+data_raw$Content.Rating <- as.factor(data_raw$Content.Rating)
+
+data_raw$Price <- as.numeric(gsub("\\$", "", gsub("Everyone", "0", data_raw$Price)))
+
+data_raw$Current.Ver <- as.numeric(str_match(data_raw$Current.Ver, "\\d*\\.\\d{1,2}"))
+
+#отфильтрованный датафрейм
+data <- data_raw %>%
+  select(-Android.Ver, -Last.Updated) %>% 
+  filter(Installs > 10000 & Current.Ver > 0 & Size > 0 & Reviews > 50) %>% 
+  mutate(Length.App.Name = nchar(App))
+data <- data %>%
+  group_by(App) %>% 
+  slice(which.max(Reviews)) %>% 
+  arrange(-Installs)
+
+# основные метрики по категориям
+t <- data %>% 
+  group_by(Category) %>% 
+  summarise(Installs = sum(Installs), 
+            Num.of.apps = n(),
+            Downloads.per.app = Installs/Num.of.apps,
+            Mean.price.US = mean(Price),
+            Length.of.App.Name = mean(nchar(App)),
+            Mean.rating = mean(Rating, na.rm = T),
+            Mean.version = mean(Current.Ver, na.rm = T)) %>% 
+  arrange(-Installs, -Downloads.per.app, -Num.of.apps)
+
+# основные метрики по жанрам
+t3 <- data %>% 
+  mutate(Genres = sub(".*;", "", Genres)) %>% 
+  group_by(Category, Genres) %>% 
+  summarise(Installs = sum(Installs), 
+            Num.of.apps = n(),
+            Downloads.per.app = Installs/Num.of.apps,
+            Mean.price = mean(Price), 
+            Length.of.App.Name = mean(nchar(App)),
+            Mean.rating = mean(Rating, na.rm = T),
+            Mean.version = mean(Current.Ver, na.rm = T)) %>% 
+  arrange(-Installs, -Downloads.per.app)
+
+# основные метрики по жанру игр
+t4 <- data %>%
+  filter(Category == "GAME") %>% 
+  mutate(Genres = sub(".*;", "", Genres)) %>% 
+  group_by(Category, Genres) %>% 
+  summarise(Installs = sum(Installs), 
+            Num.of.apps = n(),
+            Downloads.per.app = Installs/Num.of.apps,
+            Mean.price = mean(Price), 
+            Length.of.App.Name = mean(nchar(App)),
+            Mean.rating = mean(Rating, na.rm = T),
+            Mean.version = mean(Current.Ver, na.rm = T)) %>% 
+  arrange(-Installs, -Downloads.per.app)
+
+# базовые показатели в категории игр
+t5 <- data %>%
+  filter(Category == "GAME") %>% 
+  select(-Reviews) %>% 
+  distinct() %>% 
+  mutate(Genres = sub(".*;", "", Genres)) %>% 
+  group_by(Category, Genres) %>% 
+  arrange(-Installs)
+
+```
+
+
+### Почему приложения в Google Play?
+В [Kaggle](https://www.kaggle.com/lava18/google-play-store-apps) -- хранилищем с массивов разнообразных данных, я искал датафреймы для создания первой аналитической работы. Один из первых датафреймов, который меня заинтересовал -- выгрузка 10 000 приложений из Google Play. 
+
+Сразу появились вопросы, а какие категории наиболее популярны? Влияет ли размер приложения на количество скачиваний? Как сильно влияет рейтинг на количество скачиваний? Есть ли корреляция между рейтингом и версией приложения? 
+
+На них вы и увидите ответы в этой статье.
+
+## Выводы
+Начнём с выводов, чтобы те, кто не очень хорошо разбирается в аналитической терминологии смог сразу получить полезную информацию, не вникая в статистическую терминологию.
+
+1. Самая популярная категория в Google Play -- `r t$Category[1]`. 
+
+```{r, cache=T}
+ggplot(t, aes(Category, Installs, fill = Category))+
+  theme_light()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none")+
+  scale_y_continuous(breaks = seq(0, max(t$Installs), by = 2000000000))+
+  geom_col()
+```
+
+2. Среди игр самый недооценённый -- казульные игры. На него есть спрос, при этом конкуренция в категории небольшая.
+
+```{r, cache=T}
+ggplot(t4, aes(x = reorder(Genres, Downloads.per.app,
+                     function(x) -max(x)), Downloads.per.app, fill = Genres))+
+  theme_light()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+        legend.position = "none")+
+  xlab(label = "Genres")+
+  labs(title = "Количество скачиваний на приложение")+
+  scale_y_continuous(breaks = seq(0, max(t4$Downloads.per.app), by = 10000000))+
+  geom_col()
+```
+
+3. Зависимости между факторами(размер, рейтинг и т.д.) и количеством скачиваний меняются от категории к категории. Нельзя применять выводы, сформированные на всей выборке, к какой-то конкретной категории. Каждую категорию необходимо исследовать отдельно.
+
+4. В категории игр длина приложения отрицательно сказывается на количестве скачиваний. Все лидеры имеют короткие названия.
+
+5. Рейтинг имеет наибольшее положительное влияние на количество скачиваний, как среди категории игр, так и по всей выборке, поэтому ему всегда стоит уделять пристальное внимание.
+
+## Анализ
+
+### Цель и гипотезы
+Главная цель статьи -- дать понимание базовых метрик в индустрии приложений для человека, который никогда с ней не сталкивался, и облегчить понимание определённых базовых принципов работы в этой области. 
+
+```{r, echo=F}
+knitr::kable(head(t), caption = "Основные метрики по категориям (ТОП-5)", digits = c(0, 0, 0, 0, 2, 2, 2, 2))
+```
+
+####### *Если кто-то из читателей знает, как красиво форматировать большие числа, оставляя числовой формат, напишите на sergeymong1@gmail.com*
+
+На первый взгляд, между категориями есть значимые различия c разбросом значений от `r format(range(t$Installs)[1], digits = 9, big.mark = " ")` до `r format(range(t$Installs)[2], digits = 9, big.mark = " ")` скачиваний.
+
+Особенно по количеству скачиваний выделяется категория: `r t$Category[1]`, это же подтверждает гистограмма распределения установок:
+
+```{r}
+ggplot(t, aes(Category, Installs, fill = Category))+
+  theme_light()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), legend.position = "none")+
+  scale_y_continuous(breaks = seq(0, max(t$Installs), by = 2000000000))+
+  geom_col()
+```
+
+На ней мы видим выброс максимального значения -- категорию `r t$Category[1]` от остальных графиков. 
+
+Для статистического подтверждения воспользуемся критерием Стьюдента и проведём t-test. Показатель значимости (p-value): `r round(t.test(t$Installs)$p.value, digits = 2)`. Со значением p-value < 0.05 мы не можем принять гипотезу(нулевая гипотеза) о равенстве значений. Поэтому различия между категориями значимые.
+
+Конкуренция в лидирующих категориях приложений довольно большая, там содержится `r t$Num.of.apps[1]` и `r t$Num.of.apps[2]` приложений соответственно, но категория игр гораздо лучше себя показывает по показателю `r colnames(t3)[5]` (скачиваний на 1  приложение): `r format(t$Downloads.per.app[1], scientific=F, big.mark=" ")` против `r format(mean(t$Downloads.per.app[-1]), scientific=F, big.mark=" ")` в среднем по другим категориям. 
+
+Если детализируем эти категории по жанрам, то увидим интересную картину:
+```{r}
+knitr::kable(head(t3), caption = "Основные метрики по жанрам", digits = c(0, 0, 0, 0, 0, 2, 2, 2, 2))
+```
+
+Лидерство категории игр увеличивается, а `r round(t3$Installs[1]/t$Installs[1]*100)`% скачиваний приносит `r round(t3$Num.of.apps[1]/t$Num.of.apps[1]*100)`% приложений из категории `r t3$Genres[1]`.
+
+```{r}
+ggplot(t4, aes(x = reorder(Genres, Installs,
+                     function(x) -max(x)), Installs, fill = Genres))+
+  theme_light()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+        legend.position = "none")+
+  xlab(label = "Genres")+
+  labs(title = "Лидеры жанров в категории игры по количеству установок")+
+  geom_col()
+```
+
+Самые популярные жанры в категории игр: `r levels(reorder(t4$Genres, t4$Installs, function(x) -max(x)))[1:3]`.
+
+```{r}
+ggplot(t4, aes(x = reorder(Genres, Num.of.apps,
+                     function(x) -max(x)), Num.of.apps, fill = Genres))+
+  theme_light()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+        legend.position = "none")+
+  xlab(label = "Genres")+
+  labs(title = "Конкуренция по количеству приложений")+
+  scale_y_continuous(breaks = seq(0, max(t4$Num.of.apps), by = 20))+
+  geom_col()
+```
+
+При этом конкуренция по приложениям не соответвует количеству скачиваний, больше всего приложений в жанре `r t4$Genres[which.max(t4$Num.of.apps)]`. 
+
+```{r}
+ggplot(t4, aes(x = reorder(Genres, Downloads.per.app,
+                     function(x) -max(x)), Downloads.per.app, fill = Genres))+
+  theme_light()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), 
+        legend.position = "none")+
+  xlab(label = "Genres")+
+  labs(title = "Количество скачиваний на приложение")+
+  scale_y_continuous(breaks = seq(0, max(t4$Downloads.per.app), by = 10000000))+
+  geom_col()
+```
+
+Наблюдаем, что с точки зрения конкуренции и спроса самым привлекательным является жанр `r levels(reorder(t4$Genres, t4$Downloads.per.app, function(x) -max(x)))[1]`. По метрике `r names(t4)[5]` он опережает ближайшего конкурента на `r format(abs(sort(-t4$Downloads.per.app)[1] - sort(-t4$Downloads.per.app)[2]), big.mark = " ")` скачиваний.
+
+### Что влияет на популярность?
+
+Мы выявили самые популярные жанры приложений в категории игры, теперь давайте попробуем понять, а что влияет на эту популярность? Так ли важен рейтинг? Длина названия приложения? Размер? Построим регрессионную линейную модель по выборке из `r nrow(data)` приложений. Она позволит показать, как один из факторов влияет на наш целевой показатель -- скачивания. 
+
+Потом сравним её показатели с нашей лидирующей категорией -- `r t$Category[1]`, и посмотрим, есть ли какие-то различия. Если есть, то в следующих статьях более подробно рассмотрим каждую категорию. 
+
+Перед тем, как построить регресионную модель, убедимся в том, что мы имеем дело с нормальным распределением -- это один из критериев корректной работы модели. Если значение результатов будет больше 0.05, то мы можем применять линейную регрессию.
+
+```{r}
+result <- as.data.frame(sapply(data[, c(3:6, 8, 11, 12)], function(y) shapiro.test(y)$p.value), ncol = 2)
+names(result) <- c("p.value")
+result
+```
+
+Мы видим, что распределение каждой нашей переменной сильно отличается от нормального. Поэтому мы не сможем применить линейную регрессию.
+
+Но у нас есть возможность проверить корреляцию между переменными. Это даст меньше информации, однако, в данной ситуации это лучше, чем ничего. Перед применением теста немного о том, как будем интерпретировать результаты. Мы считаем, что значимая взаимосвязь между переменными есть, если значения p.value меньше, чем 0.05. 
+
+#### Значимые факторы
+Между нижеперечисленными факторами в общей выборке наблюдается положительная или отрицательная взаимосвязь. То есть, при изменении одного фактора, наблюдается изменение другого фактора. Если показатель в первой колонке:
+
+- от 0 до 1, то при увеличении одного фактора, есть **увеличение** другого фактора;
+- от - 1 до 0, то при увеличении одного фактора, есть **уменьшение** другого фактора.
+
+Чем ближе значение к 1 или -1, тем сильнее взаимосвязь.
+
+##### Цена и количество скачиваний
+```{r}
+as.data.frame(cor.test(~ Rating + Installs, data)[c(4, 3)])
+```
+Есть небольшая положительная корреляция между рейтингом и количеством установок. 
+
+##### Размер и количество скачиваний
+```{r}
+as.data.frame(cor.test(~ Size + Installs, data)[c(4, 3)])
+```
+Наблюдается положительная корреляция. Устоявшаяся мысль о том, что люди не качают приложения, которые много весят, так как экономят место на телефоне, теперь не так убедительна. 
+
+В следующих статьях попробуем узнать, меняется ли корреляция от категории. Так как подобное значение может быть связано влиянием категории игр: более качественные игры больше весят, и при этом в них играет большее количество людей.
+
+#### Неначимые факторы
+Между нижеперечисленными факторами в общей выборке нет никакой взаимосвязи.
+
+##### Отзывы и количество скачиваний
+```{r}
+as.data.frame(cor.test(~ Reviews + Installs, data)[c(4, 3)])
+```
+
+##### Цена и количество скачиваний
+```{r}
+as.data.frame(cor.test(~ Price+ Installs, data)[c(4, 3)]) # Цена никак не коррелирует с количеством скачиваний
+```
+
+##### Длина названия и количество скачиваний
+```{r}
+as.data.frame(cor.test(~ Length.App.Name + Installs, data)[c(4, 3)])
+```
+
+##### Версия и количество скачиваний
+```{r}
+as.data.frame(cor.test(~ Current.Ver + Installs, data)[c(4, 3)])
+```
+
+##### Версия и рейтинг
+```{r}
+as.data.frame(cor.test(~ Current.Ver + Rating, data)[c(4, 3)])
+```
+
+### Корреляция по категории "игры"
+
+```{r}
+res <- rbind(as.data.frame(cor.test(~ Length.App.Name + Installs, t5[5:nrow(t5),])[c(4, 3)]), 
+      as.data.frame(cor.test(~ Rating + Installs, t5[5:nrow(t5),])[c(4, 3)]),
+      as.data.frame(cor.test(~ Size + Installs, t5[5:nrow(t5),])[c(4, 3)]),
+      as.data.frame(cor.test(~ Price + Installs, t5[5:nrow(t5),])[c(4, 3)]),
+      as.data.frame(cor.test(~ Current.Ver + Installs, t5[5:nrow(t5),])[c(4, 3)]))
+
+rownames(res) <- c("Length.Name","Rating", "Size", "Price", "Current.Ver")
+res
+```
+
+В категории `r t$Category[1]` мы видим, что каждый из факторов имеет значимую кореляцию с количеством скачиваний.
+
+Из заинтересовавших корреляций: длина названия приложения и количество скачиваний. Изначальная гипотеза о том, что длинное название хорошо влияет на поисковую выдачу и увеличивает количество пользователей на данной выборке не подтверждается, но это не говорит о том, что подобная взаимосвязь присутствует везде.
+
+Более подробно мы рассмотрим корреляции по категориям в следующих статьях. 
+
+Чтобы лучше исследовать данный набор данных, необходим более продвинутый статистический и математический аппрат, так как между данными есть нелинейная взаимосвязь. 
+
+## Предобработка данных
+Здесь мы описываем то, каким образом преобразовывался изначальный массив данных и почему.
+
+Исходные данные представляют собой csv файл с количеством строк в`r nrow(data_raw)` наблюдений, у них следующая структура:
+```{r}
+str(data_raw)
+```
+Не у всех данных верно представлен формат, в каких-то столбцах вместо численных переменных мы имеем комментарий, поэтому произведём преобразование форматов данных:
+
+- У переменной размера строки с буквенными значениями переведём в NA, а весь размер приведём к килобайтам;
+- Количество установок переведём в формат numeric для возможности построения графиков и формирования выборок;
+- Так как тип приложения 0 и Free одинаков, все данные типы приведём к Free, и сделаем переменную фактором;
+- Цену приведём к числовому формату;
+- Версию приведём к числовому формату.
+
+После преобразования структура имеет следующий вид:
+```{r}
+str(data_raw)
+```
+
+Эти данные всё ещё содержат пропуски, но они теперь более корректно представлены в виде значений NA.
+
+Выборка включает в себя приложения с малым количеством скачиваний и отзывов, поэтому я дополнительно отфильтровал таблицу, так как непопулярные приложения не нужны в рамках исследования. Использовал следующие критерии:
+
+- Количество скачиваний превышеает 10 000 (Installs > 10000);
+- Текущая версия приложения больше нуля (Current.Ver > 0);
+- Размер приложения больше нуля (Size > 0);
+- У приложения есть хотя бы 50 отзывов (Reviews > 50).
+
+Таким образом мы остекли приложения, которые не пользуются спросом у людей или которые не прошли стадию релиза. После применения критериев данные представляют собой следующий вид:
+
+```{r, echo=FALSE}
+glimpse(data)
+```
+
+На этом преобразования изначального массива данных заверешены. Далее в статье выборки по категориям мы производили из преобразованного массива данных.
