@@ -1,0 +1,53 @@
+---
+title: "Нано исследование"
+author: "Sergey Sidorov"
+date: "12/6/2018"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+В этом исследовании мы рассмотрим цены на квартиры в Москве.
+
+```{r, include=F}
+library(memisc)
+library(dplyr)
+library(psych)
+library(lmtest)
+library(sjPlot)
+library(sgof)
+library(ggplot2)
+library(foreign)
+library(car)
+library(hexbin)
+library(rlms)
+library(grid)
+library(vcd)
+
+
+f <- read.csv("flats_moscow.txt", sep = "\t", header = T, dec = ".")
+```
+
+В нашем наборе данных `r nrow(f)` наблюдений. Средняя цена квартиры равна `r mean(f$price)` тысяч у.е.
+
+График:
+```{r}
+f <- mutate_at(f, vars(walk, brick, floor, code), "factor")
+qplot(data = f, log(price), fill = brick, geom = "density", alpha = 0.5) + facet_grid(walk~floor)
+```
+
+Оценим и сравним три модели:
+```{r, results='asis'}
+model0 <- lm(data = f, log(price) ~ log(totsp))
+model1 <- lm(data = f, log(price) ~ log(totsp) + brick)
+model2 <- lm(data = f, log(price) ~ log(totsp) + brick + brick:log(totsp))
+
+m <- mtable("Model 0" = model0, "Model 1" = model1, "Model 2" = model2)
+toLatex(m)
+```
+
+Лучше оказалась модель 2.
