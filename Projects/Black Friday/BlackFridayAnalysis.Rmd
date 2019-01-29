@@ -1,0 +1,573 @@
+---
+title: "Кто покупает в чёрную пятницу?"
+author: "Sergey Sidorov"
+date: "27/11/2018"
+output: 
+html_document:
+  toc: yes
+  toc_float: yes
+urlcolor: blue
+
+---
+ 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, dev = "png")
+knitr::knit_hooks$set(optipng = '-o8')
+```
+
+<div style= "float:right;position: relative; top: -20px;">
+```{r, out.width = "350px"}
+knitr::include_graphics("IMG/1.png")
+```
+</div>
+
+## Введение
+Как же достала эта чёрная пятница! 
+
+Проскакивала эта мысль в голове за последнюю неделю? Каждый год одно и то же: тебя забрасывают рекламными сообщениями и говорят, что тебе невероятно повезло и ты можешь крупно сэкономить.
+
+Что ж, возможно, кому-то это удавалось. Я же понял, что это очень хорошая возможность заработать для магазинов, и небольшая возможность купить что-то классное по действительно выгодной цене. 
+
+Тоже так думаете? Считаете, что никто не покупает в этот период? Как бы не так. И сегодня вы в этом убедитесь!
+
+## Что исследуем?
+```{r, include=FALSE}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(magrittr)
+library(formattable)
+library(plotly)
+
+data_raw <- fread("BlackFriday.csv")
+```
+
+[Сегодняшний датасет](https://www.kaggle.com/mehdidag/black-friday) почти в 50 раз больше, чем в [первом исследовании](http://rpubs.com/sergeymong/441686)! В нём **`r format(nrow(data_raw), big.mark = " ")`** наблюдений. 
+
+Это [база данных](https://www.kaggle.com/mehdidag/black-friday) одного из ритейлеров, в котором содержатся наблюдения покупок в период чёрной пятницы.
+
+Посмотрим, какие наблюдения он содержит:
+
+- `r names(data_raw)[1]` -- уникальный код клиента;
+- `r names(data_raw)[2]` -- уникальный код товара;
+- `r names(data_raw)[3]` -- пол клиента;
+- `r names(data_raw)[4]` -- возрастная категория клиента;
+- `r names(data_raw)[5]` -- профессия;
+- `r names(data_raw)[6]` -- классификация города по размерности или достатку;
+- `r names(data_raw)[7]` -- сколько лет человек живёт в городе;
+- `r names(data_raw)[8]` -- статус семейного положения;
+- `r names(data_raw)[9]` -- категория продукта;
+- `r names(data_raw)[12]` -- сумма покупки ($).
+
+В описании данных не было расшифровки категорий продукта и профессий, а также точных критериев для размерности города. Также неизвестны страна и название ритейлера и за какой временной период собирались данные.
+
+Мне удалось найти описание [классификации городов](https://www.finmin.nic.in/sites/default/files/27-11-1965_0.pdf) по схожей схеме, и она учитывает размер заработных плат в этом городе. Будем считать, что город класса A выше по оплате труда, чем С.
+
+Итого мы имеем:
+```{r}
+glimpse(data_raw)
+```
+
+## Вопросы и гипотезы
+Какие у вас возникли вопросы при просмотре структуры датасета? У меня сразу же возникли следующие:
+
+1. [Кто покупает больше товаров?](#purchsex)
+2. [Кто тратит больше денег?](#moneysex)
+3. [У кого выше средний чек?](#averagechsex) [^1]
+4. [Как брак влияет на покупки?](#mariagepurch)
+5. [Как город влияет на покупки?](#citypurch)
+6. [Как тип города влияет на покупки человека?](#moneysex)
+7. [Как количество лет в одном городе влияет на покупки?](#yearscitypurch)
+8. [**Какая самая привлекательная аудитория в чёрную пятницу?**](#audience)
+
+Их и будем проверять. Кстати, если вы хотели бы участвовать в формировании вопросов для анализа, **напишите в комментарии или личные сообщения**! 
+
+Формат будет такой: я публикую описание датасета, вы пишете вопросы, на которые хотели бы узнать ответы. Потом я ищу ответы на ваши вопросы в датасете.
+
+[^1]: [Что такое средний чек?](http://www.marketch.ru/marketing_dictionary/marketing_terms_s/sredniy_chek/) 
+
+## Предобработка
+
+Если вам не интересно, как сначала обрабатываются данные, можете смело переходить к [блоку анализа](#analysis).
+
+***
+
+Работа с датасетом происходит в `r version$version.string`.
+
+### Обработка первичных данных
+Проверяем на наличие пропусков в записях, чтобы понимать, на каких данных столбцах могут некорректно отрабатывать функции:
+```{r}
+#checking columns to NA
+head(data.frame("col_num" = seq(1, length(names(data_raw))),
+           "na_nums" = sapply(data_raw, function(x) sum(is.na(x)))), 12)
+```
+Можно сказать, что нам крупно повезло -- основная часть данных не содержит пропусков, а та, что содержит, в контексте данного анализа неважна для нас. Поэтому удалим колонки `r names(data_raw)[c(10,11)]`.
+
+Дальше проверим, какие данные лучше превратить в [факторы](https://ru.wikibooks.org/wiki/%D0%AF%D0%B7%D1%8B%D0%BA_%D0%BF%D1%80%D0%BE%D0%B3%D1%80%D0%B0%D0%BC%D0%BC%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F_R/%D0%92%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5#Factors) -- это позволит быстрее группировать данные в дальнейшем:
+```{r}
+#checking columns to convert as factor
+data.frame("col_num" = seq(1, length(names(data_raw))),
+  "freq" = sapply(data_raw, function(x) length(unique(x))))
+```
+
+Все колонки со значением freq меньше 25 преобразуем в [фактор](https://ru.wikibooks.org/wiki/%D0%AF%D0%B7%D1%8B%D0%BA_%D0%BF%D1%80%D0%BE%D0%B3%D1%80%D0%B0%D0%BC%D0%BC%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F_R/%D0%92%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5#Factors).
+
+После первичных преобразований получаем следующий датасет:
+```{r}
+# turning some columns into factor and remove NA columns. Preprocess
+data <- data_raw %>% 
+  mutate_at(c(3:9), funs(factor(.))) %>% 
+  select(which(colSums(is.na(.)) == 0))
+
+levels(data$Gender) <- c("Female", "Male")
+levels(data$Marital_Status) <- c("Not Married", "Married")
+
+glimpse(data)
+```
+
+### Формирование выборок для анализа
+
+#### Выборка по пользователям
+Чтобы ответить на первые три вопроса, нам понадобится выборка, сгруппированная по каждому пользователю. Всего в данных `r nrow(data)` строк, а уникальных пользователей `r length(unique(data$User_ID))` -- это говорит о том, что в наборе данных на каждого пользователя по несколько покупок. Формируем сабсет:
+```{r}
+sample_by_user <- data %>%
+  group_by(User_ID, Gender, Age, Marital_Status, Stay_In_Current_City_Years, City_Category) %>% 
+  summarise(purchases = n(), 
+            sum_p_thous = currency(sum(Purchase)/1000, digits = 2),
+            avg_purch_thous = sum_p_thous/purchases) %>% 
+  arrange(-sum_p_thous)
+
+glimpse(sample_by_user)
+```
+
+Для удобства анализа все денежные данные приведены к формату валюты. Также для удобства восприятия сумма покупок представляется в тысячах. 
+
+```{r}
+#  Видим, что у нас три последних значения сильно отклоняются от выборки -- это выборсы, избавимся от них
+qqnorm(sample_by_user$sum_p_thous)
+
+#удалили выбросы
+sample_by_user <- sample_by_user[-1:-3,]
+
+# Создали ранг для наших покупаетелей, к какой категории они относятся
+sample_by_user$vol_of_purch <- cut(sample_by_user$sum_p_thous, 3, labels = c("Low", "Medium", "High"), ordered_result = T)
+```
+
+На графике видим, что три последних значения сильно отклоняются от выборки -- это выборсы. Так как они могут искажать выводы и результаты тестов, удаляем.
+
+#### Выборка по статусу брака
+Данная выборка позволит понять абсолютную разницу между поведением покупателей в зависимости от семейного положения по целевым показателям:
+```{r}
+# датасет с брачными и небрачными людьми
+diff_married <- sample_by_user %>% 
+  group_by(Age, Gender) %>% 
+  summarise(diff_p = round(mean(purchases[Marital_Status == "Not Married"]) - 
+              mean(purchases[Marital_Status == "Married"])),
+            diff_avg_p = mean(avg_purch_thous[Marital_Status == "Not Married"]) - 
+              mean(avg_purch_thous[Marital_Status == "Married"]),
+            diff_sum_p = mean(sum_p_thous[Marital_Status == "Not Married"]) - 
+              mean(sum_p_thous[Marital_Status == "Married"])) %>% 
+  filter(!is.nan(diff_sum_p))
+
+glimpse(diff_married)
+```
+
+#### Выборка по типу городов
+Благодаря этому датасету мы получим ответы на вопросы, связанные с типами городов:
+```{r}
+# датасет с группировкой по городам
+sample_by_cities <- sample_by_user %>%
+  group_by(City_Category, Gender, Age, Marital_Status, Stay_In_Current_City_Years) %>% 
+  summarise(users = n(),
+            purchases = sum(purchases), 
+            sum_p_thous = currency(sum(sum_p_thous), digits = 2),
+            avg_purch_thous = sum_p_thous/users,
+            avg_purch_per_order = sum_p_thous/purchases) %>% 
+  arrange(-sum_p_thous, -avg_purch_thous)
+
+glimpse(sample_by_cities)
+```
+
+На этом обработка и предобработка данных завершена.
+
+## Анализ {#analysis}
+
+### Кто покупает больше товаров? {#purchsex}
+Для начала посмотрим, кто делает больше покупок? 
+```{r}
+#График, в котором видим, что женщины покупают меньше вещей, чем мужчины
+ggplot(sample_by_user, aes(purchases, fill = Gender))+
+  facet_wrap(~Gender, ncol = 1, scales = "free")+
+  geom_density()+
+  geom_vline(data=filter(sample_by_user, Gender=="Female"), 
+             aes(xintercept = mean(sample_by_user$purchases[sample_by_user$Gender == "Female"])))+
+  geom_vline(data=filter(sample_by_user, Gender=="Male"), 
+             aes(xintercept = mean(sample_by_user$purchases[sample_by_user$Gender == "Male"])))+
+  geom_text(data=filter(sample_by_user, Gender=="Female"),
+            aes(x = mean(sample_by_user$purchases[sample_by_user$Gender == "Female"])+0.5, y = 0.01, label="\nMean female"), 
+            angle=90, size=4)+
+  geom_text(data=filter(sample_by_user, Gender=="Male"),
+            aes(x = mean(sample_by_user$purchases[sample_by_user$Gender == "Male"])+0.5, y = 0.01, label="\nMean male"), 
+            angle=90, size=4)+
+  scale_y_continuous(breaks = seq(0, 1, by = 0.0025), 
+                     limits = c(0, 0.0145), 
+                     labels = scales::percent)+
+  scale_x_continuous(breaks = seq(0, 1100, by = 100), 
+                     limits = c(0, 1100))+
+  labs(title = "Распределение покупок по полу (Рис. 1)")
+```
+
+На (Рис. 1) видим, что женщины совершают меньше покупок. В среднем женщины покупают **`r round(mean(sample_by_user$purchases[sample_by_user$Gender == "Female"]))`** товаров, а мужчины **`r round(mean(sample_by_user$purchases[sample_by_user$Gender == "Male"]))`**.
+
+Сделаем чуть более наглядный график:
+```{r}
+#Незамужние покупают больше
+fun_mean <- function(x) return(data.frame(y=mean(x), label=format(mean(x,na.rm=T), digits = 2)))
+ggplot(sample_by_user, aes(Gender, purchases, fill = Gender))+
+  geom_boxplot()+
+  facet_grid(~Marital_Status)+
+  stat_summary(fun.data = fun_mean, geom="text")+
+  scale_y_continuous(name = "Purchases")+
+  labs(title = "Количество покупок по браку и полу (Рис. 2)")
+```
+<font size = "1">*Тест Стьюдента показывает, что различия значимые, так как p-value -- `r round(t.test(sapply(levels(sample_by_user$Marital_Status), function(x) mean(sample_by_user$purchases[sample_by_user$Marital_Status == x])))$p.value, digits = 3)`. [Подробнее о тесте](https://ru.wikipedia.org/wiki/T-%D0%9A%D1%80%D0%B8%D1%82%D0%B5%D1%80%D0%B8%D0%B9_%D0%A1%D1%82%D1%8C%D1%8E%D0%B4%D0%B5%D0%BD%D1%82%D0%B0). *</font>
+
+Те, кто не в браке -- покупают больше (Рис. 2). Возможно, это связано с тем, что в браке добавляются такие статьи расходов, как ребёнок, ипотека и прочее.
+
+### Кто тратит больше денег? {#moneysex}
+```{r}
+#При этом мужчины тратят в среднем больше
+fun_mean_cur <- function(x) return(data.frame(y=mean(x), label=paste0(currency(mean(x,na.rm=T), digits = 2), " k")))
+ggplot(sample_by_user, aes(Gender, sum_p_thous, fill = Gender))+
+  geom_boxplot()+
+  stat_summary(fun.data = fun_mean_cur, geom="text")+
+  scale_y_continuous(name = "Sum of purchases")+
+  labs(title = "Сумма покупок по полу (Рис. 3)")
+```
+
+Мужчины больше тратят, чем женщины, причём существенно -- на **`r as.numeric(round((mean(sample_by_user$sum_p_thous[sample_by_user$Gender == "Male"])/ mean(sample_by_user$sum_p_thous[sample_by_user$Gender == "Female"]) - 1)*100))`%** (Рис. 3). Женщины в среднем тратят `r mean(sample_by_user$sum_p_thous[sample_by_user$Gender == "Female"])`, а мужчны `r mean(sample_by_user$sum_p_thous[sample_by_user$Gender == "Male"])` тысяч долларов.
+
+```{r}
+# А незамужние тратят больше замужних, причём как женщины, так и мужчины
+ggplot(sample_by_user, aes(Gender, sum_p_thous, fill = Gender))+
+  geom_boxplot()+
+  facet_grid(~Marital_Status)+
+  stat_summary(fun.data = fun_mean_cur, geom="text")+
+  scale_y_continuous(name = "Sum of purchases")+
+  labs(title = "Сумма покупок по полу и семейному положению (Рис. 4)")
+```
+<font size = "1">*Тест Стьюдента показывает, что различия значимые, так как p-value -- `r round(t.test(sapply(levels(sample_by_user$Marital_Status), function(x) mean(sample_by_user$sum_p_thous[sample_by_user$Marital_Status == x])))$p.value, digits = 3)`. [Подробнее о тесте](https://ru.wikipedia.org/wiki/T-%D0%9A%D1%80%D0%B8%D1%82%D0%B5%D1%80%D0%B8%D0%B9_%D0%A1%D1%82%D1%8C%D1%8E%D0%B4%D0%B5%D0%BD%D1%82%D0%B0). *</font>
+
+На (Рис. 4) видим, что люди не в браке тратят больше. Возможно, это связано с тем, что количество покупок у них тоже больше. Давайте выявим [корреляцию](https://ru.wikipedia.org/wiki/%D0%9A%D0%BE%D1%80%D1%80%D0%B5%D0%BB%D1%8F%D1%86%D0%B8%D1%8F#%D0%9B%D0%B8%D0%BD%D0%B5%D0%B9%D0%BD%D1%8B%D0%B9_%D0%BA%D0%BE%D1%8D%D1%84%D1%84%D0%B8%D1%86%D0%B8%D0%B5%D0%BD%D1%82_%D0%BA%D0%BE%D1%80%D1%80%D0%B5%D0%BB%D1%8F%D1%86%D0%B8%D0%B8). Её коэффициент составляет: `r cor(sample_by_user$sum_p_thous, sample_by_user$purchases)`. Это говорит практически об абсолютной взаимосвязи (максимальное значение коэффициента -- 1).
+
+### У кого выше средний чек? {#averagechsex}
+```{r}
+#И средний чек у мужчин больше
+ggplot(sample_by_user, aes(Gender, avg_purch_thous, fill = Gender))+
+  geom_boxplot()+
+  stat_summary(fun.data = fun_mean_cur, geom="text", vjust=-0.2)+
+  scale_y_continuous(name = "Sum of purchases")+
+  labs(title = "Средний чек по полу (Рис. 5)")
+```
+<font size = "1">*Тест Стьюдента показывает, что различия значимые, так как p-value -- `r round(t.test(sapply(levels(sample_by_user$Gender), function(x) mean(sample_by_user$avg_purch_thous[sample_by_user$Gender == x])))$p.value, digits = 3)`. [Подробнее о тесте](https://ru.wikipedia.org/wiki/T-%D0%9A%D1%80%D0%B8%D1%82%D0%B5%D1%80%D0%B8%D0%B9_%D0%A1%D1%82%D1%8C%D1%8E%D0%B4%D0%B5%D0%BD%D1%82%D0%B0). *</font>
+
+По среднему чеку видим (Рис. 5), что мужчины на каждую покупку тратят на **`r as.numeric(round((mean(sample_by_user$avg_purch_thous[sample_by_user$Gender == "Male"])/ mean(sample_by_user$avg_purch_thous[sample_by_user$Gender == "Female"]) - 1)*100))`%** больше женщин.
+
+```{r}
+# Средний чек у замужних женщин больше, чем у незамужних, при этом у мужчин чуть меньше
+ggplot(sample_by_user, aes(Gender, avg_purch_thous, col = Gender))+
+  geom_boxplot()+
+  facet_grid(~Marital_Status)+
+  stat_summary(fun.data = fun_mean_cur, geom="text", col = 'black', vjust=-0.2, cex = 2.8)+
+  scale_y_continuous(name = "Average check")+
+  labs(title = "Средний чек по возрасту статусу и полу (Рис. 6)")
+```
+
+Замужние женщины начинают тратить больше, а женатые мужчины незначительно меньше (Рис. 6). Возможно, это связано с тем, что в некоторых семьях присутствуют общие бюджеты, из которых женщина делает дополнительные покупки для быта, семьи или себя.
+
+### Как брак влияет на покупки? {#mariagepurch}
+Давайте чуть глубже взглянем на разницу в совершении покупок для людей, которые вошли в брак и тех, кто ещё нет. 
+
+Для этого сделали отдельный датасет. Так как выше мы обнаружили, что люди не в браке тратят больше, то все следующие графики, будут представлены, как **разница между внебрачными и брачными людьми**.
+
+#### Количество покупок
+```{r}
+# график с разницей между брачными и небрачными людьми
+ggplot(diff_married, aes(Age, diff_p, fill = Gender))+
+  geom_col(width = 0.4, position = position_dodge(width = 0.5))+
+  geom_text(aes(label= diff_p, Age, diff_p+ifelse(diff_p>=0, 0, -0.9)),
+            position = position_dodge(width = 0.5),
+            vjust = -0.5 , size= 3, color = "black")+
+  geom_hline(yintercept = 0)+
+  scale_y_continuous(name = "Difference of number purchases")+
+  labs(title = "Разница в количестве покупок (не в браке - в браке) (Рис. 7)")
+```
+Отрицательные значения на графике говорят о том, что **до брака люди тратят меньше, чем в браке**.
+
+Здесь видим очень большую разницу для мужчин категории 18-25 лет (Рис. 7). Возможно, это связано с тем, что молодые мужчины вне брака тратят всё на своё развитие, развлечения и получение опыта. Мужчины же в браке могут быть обременены ипотекой, кредитами или расходами на ребёнка и жену. 
+
+Касательно остальных возрастных категорий пусть каждый сделает свои предположения и **напишет их в комментариях**, мы вместе обсудим и определим наиболее интересную догадку.
+
+#### Сумма покупок
+```{r}
+ggplot(diff_married, aes(Age, diff_sum_p, fill = Gender))+
+  geom_col(width = 0.4, position = position_dodge(width = 0.7))+
+  geom_text(aes(label= diff_sum_p, Age, diff_sum_p+ifelse(diff_sum_p>=0,0, -10)),
+            position = position_dodge(width = 0.7),
+            vjust = -0.5 , size= 3)+
+  geom_hline(yintercept = 0)+
+  scale_y_continuous(name = "Difference of sum purchases")+
+  labs(title = "Разница в сумме покупок (не в браке - в браке) (Рис. 8)")
+```
+
+Главные отклонения наблюдаются по тем же категориям, что количество покупок (Рис. 7).
+
+При этом видим (Рис. 8), что практически все люди, кроме категории 46-50, вне брака тратят больше, чем в браке. 
+
+С чем это может быть связано? Больше денег уходит на быт и ребёнка? Ответить сложно, так как мы не знаем конкретной страны и год, в которые собиралась данная статистика. Если бы у нас была данная информация, то мы согли бы её собрать и дополнить картину.
+
+#### Средний чек
+```{r}
+ggplot(diff_married, aes(Age, diff_avg_p, fill = Gender))+
+  geom_col(width = 0.4, position = position_dodge(width = 0.5))+
+  geom_text(aes(label= diff_avg_p, Age, diff_avg_p+ifelse(diff_avg_p>=0,0, -0.03)),
+            position = position_dodge(width = 0.5),
+            vjust = -0.5 , size= 3)+
+  geom_hline(yintercept = 0)+
+  scale_y_continuous(name = "Difference of average check")+
+  labs(title = "Разница в среднем чеке (не в браке - в браке) (Рис. 9)")
+
+```
+
+По среднему чеку видим любопытные отклонения (Рис. 9). Помним, что мужчины категории 18-25 делают больше покупок (Рис. 7), но при этом это менее дорогие покупки, чем у женщин. 
+
+Можно сделать предположение, что они тратят больше денег на безделушки или ещё не задумываются о качестве покупаемого товара, выбирая более дешёвые вещи.
+
+### Как город влияет на покупки? {#citypurch}
+Напомню, что в датасете города разбиты на три категории -- A, B, C. Удалось найти похожую [классификацию городов](https://www.finmin.nic.in/sites/default/files/27-11-1965_0.pdf). Поэтому будем придерживаться позиции, что город класса A наполняют люди с большим доходом, чем в городе класса C. Соответственно, доходы жителей: A > B > C.
+
+Предварительно поймём, сколько людей живёт в каждом типе городов:
+```{r}
+users_by_cities <- sample_by_user %>% 
+  group_by(City_Category, Stay_In_Current_City_Years) %>% 
+  summarise(users = n())
+
+circle_cities <- users_by_cities %>% 
+  group_by(City_Category) %>% 
+  summarise(users = sum(users))
+
+ggplot(circle_cities, aes(x = "", users, fill = City_Category))+
+  geom_bar(stat = "identity", position = position_fill())+
+  geom_text(aes(label = users), position = position_fill(vjust = 0.5), size = 4)+
+  coord_polar(theta = "y")+
+  theme(legend.position='bottom')+
+  scale_y_continuous(name = "Users")+
+  labs(title = "Пользователей по типу городов (Рис. 10)")
+```
+
+Количество людей распределяется в зависимости от достатка -- чем выше достаток, тем меньше людей (Рис. 10).
+
+#### Количество покупок
+```{r}
+# график распределения расходов по категориям городов
+#количество покупок по города
+circle_purch <- sample_by_user %>%
+  group_by(City_Category) %>% 
+  summarise(purchases = sum(purchases))
+
+ggplot(circle_purch, aes(x = "", purchases, fill = City_Category))+
+  geom_bar(stat = "identity", position = position_fill())+
+  geom_text(aes(label = format(purchases, big.mark = " ")), position = position_fill(vjust = 0.5), size = 4)+
+  coord_polar(theta = "y")+
+  theme(legend.position='bottom')+
+  scale_y_continuous(name = "Number of purchases")+
+  labs(title = "Количество покупок по типу городов (Рис. 11)")
+```
+
+Видим, что в чёрную пятницу гораздо больше покупок совершают жители городов категории B (Рис. 11). Они делают на **`r round((circle_purch$purchases[circle_purch$City_Category == "B"]/circle_purch$purchases[circle_purch$City_Category == "A"]-1)*100)`%** больше покупок, чем жители городов типа A, и на **`r round((circle_purch$purchases[circle_purch$City_Category == "B"]/circle_purch$purchases[circle_purch$City_Category == "C"]-1)*100)`%** больше покупок, чем жители городов типа C. 
+
+В свою очередь жители городов типа C делают на **`r round((circle_purch$purchases[circle_purch$City_Category == "C"]/circle_purch$purchases[circle_purch$City_Category == "A"]-1)*100)`%** больше покупок, чем жители городов типа A.
+
+#### Сумма покупок
+```{r}
+# сумма покупок по городам
+circe_purch_sum <- sample_by_cities %>%
+  group_by(City_Category) %>% 
+  summarise(purchases_sum = sum(sum_p_thous))
+
+ggplot(circe_purch_sum, aes(x = "", purchases_sum, fill = City_Category))+
+  geom_bar(stat = "identity", position = position_fill())+
+  geom_text(aes(label = purchases_sum), position = position_fill(vjust = 0.5), size = 4)+
+  coord_polar(theta = "y")+
+  theme(legend.position='bottom')+
+  scale_y_continuous(name = "Sum of purchases (thousands)")+
+  labs(title = "Сумма покупок по типу городов (Рис. 12)")
+```
+
+Наблюдаем, что корреляция между количеством покупок и суммой продолжает сохраняться. Жители городов категории B делают на **`r round(as.numeric((circe_purch_sum$purchases_sum[circe_purch_sum$City_Category == "B"]/circe_purch_sum$purchases_sum[circe_purch_sum$City_Category == "A"]-1)*100))`%** больше покупок, чем жители городов типа A, и на **`r round(as.numeric((circe_purch_sum$purchases_sum[circe_purch_sum$City_Category == "B"]/circe_purch_sum$purchases_sum[circe_purch_sum$City_Category == "C"]-1)*100))`%** больше покупок, чем жители городов типа C (Рис. 12). 
+
+В свою очередь жители городов типа C делают на **`r round(as.numeric((circe_purch_sum$purchases_sum[circe_purch_sum$City_Category == "C"]/circe_purch_sum$purchases_sum[circe_purch_sum$City_Category == "A"]-1)*100))`%** больше покупок, чем жители городов типа A.
+
+#### Средний чек покупок
+```{r}
+# средний чек по городам
+circe_purch_mean <- sample_by_cities %>%
+  group_by(City_Category) %>% 
+  summarise(purchases_mean = mean(avg_purch_thous))
+
+ggplot(circe_purch_mean, aes(x = "", purchases_mean, fill = City_Category))+
+  geom_bar(stat = "identity", position = position_fill())+
+  geom_text(aes(label = purchases_mean), position = position_fill(vjust = 0.5), size = 4)+
+  coord_polar(theta = "y")+
+  theme(legend.position='bottom')+
+  scale_y_continuous(name = "Average check (thousands)")+
+  labs(title = "Средний чек по типу городов (Рис. 13)")
+```
+
+Cредний чек больше всего у жителей городов типа A и видим взаимосвязь -- чем выше класс города, тем больше средний чек.
+
+Средний чек значительно меньше в городах категории C: на **`r round(as.numeric((circe_purch_mean$purchases_mean[circe_purch_mean$City_Category == "A"]/circe_purch_mean$purchases_mean[circe_purch_mean$City_Category == "C"]-1)*100))`%**, чем у жителей городов типа A, и на **`r round(as.numeric((circe_purch_mean$purchases_mean[circe_purch_mean$City_Category == "B"]/circe_purch_mean$purchases_mean[circe_purch_mean$City_Category == "C"]-1)*100))`%**, чем у жителей городов типа B (Рис. 13).
+
+### Как количество лет в городе, влияет на покупки? {#yearscitypurch}
+***
+<font size = "7">Никак.</font>
+
+***
+
+Почти. 
+
+Если вам интересно посмотреть на графики, показывающие это -- листайте дальше. Если нет -- [переключайтесь к определению портрета самой платёжеспособной аудитории](#audiece).
+
+#### Как долго люди находятся в городах?
+```{r}
+ggplot(users_by_cities, aes(x = Stay_In_Current_City_Years, users, fill = Stay_In_Current_City_Years))+
+  geom_col(position = position_dodge(0.6))+
+  #stat_summary(fun.y = sum)+
+  facet_wrap(~City_Category)+
+  geom_text(aes(label = users), position = position_dodge(0.6), size = 4, vjust = -0.5)+
+  theme(legend.position='bottom')+
+  scale_y_continuous(name = "Жителей")+
+  scale_x_discrete(name = "Лет в одном городе")+
+  scale_fill_discrete(guide = F)+
+  labs(title = "Как долго люди находятся в городах (Рис. 14)")
+```
+
+Видим, что наибольшее количество людей проживает в каждом типе городов около 1 года, а распределение по количеству лет одинаковое для каждого класса городов (Рис. 14).
+
+Это может говорить о большом количестве приезжих людей. Всего людей, проживающих в городе дольше 4-х лет **только `r round(sum(users_by_cities$users[users_by_cities$Stay_In_Current_City_Years == "4+"])/sum(users_by_cities$users)*100, digits = 1)`%**.
+
+#### Количество покупок
+```{r}
+# графики по городам
+ggplot(sample_by_user, aes(Stay_In_Current_City_Years, purchases, col = Stay_In_Current_City_Years))+
+  geom_boxplot()+
+  #facet_grid(Gender~Marital_Status)+
+  stat_summary(fun.data = fun_mean_cur, geom="text", vjust=0.7, cex = 2.8)+
+  scale_y_continuous(name = "Average check")+
+  #theme(plot. = element_text(size = 5))+
+  labs(title = "Покупок по количеству лет в городе (Рис. 15)")
+```
+<font size = "1">*Тест Стьюдента показывает, что различия значимые, так как p-value -- `r round(t.test(sapply(levels(sample_by_user$Stay_In_Current_City_Years),function(x) mean(sample_by_user$purchases[sample_by_user$Stay_In_Current_City_Years == x])))$p.value, digits = 3)`. [Подробнее о тесте](https://ru.wikipedia.org/wiki/T-%D0%9A%D1%80%D0%B8%D1%82%D0%B5%D1%80%D0%B8%D0%B9_%D0%A1%D1%82%D1%8C%D1%8E%D0%B4%D0%B5%D0%BD%D1%82%D0%B0). *</font>
+
+#### Сумма покупок
+```{r}
+# графики по городам
+ggplot(sample_by_user, aes(Stay_In_Current_City_Years, sum_p_thous, col = Stay_In_Current_City_Years))+
+  geom_boxplot()+
+  #facet_grid(Gender~Marital_Status)+
+  stat_summary(fun.data = fun_mean_cur, geom="text", vjust=0.7, cex = 2.8)+
+  scale_y_continuous(name = "Average check")+
+  #theme(plot. = element_text(size = 5))+
+  labs(title = "Покупок по количеству лет в городе (Рис. 16)")
+```
+<font size = "1">*Тест Стьюдента показывает, что всё же различия значимые, так как p-value -- `r round(t.test(sapply(levels(sample_by_user$Stay_In_Current_City_Years),function(x) mean(sample_by_user$sum_p_thous[sample_by_user$Stay_In_Current_City_Years == x])))$p.value, digits = 3)`. [Подробнее о тесте](https://ru.wikipedia.org/wiki/T-%D0%9A%D1%80%D0%B8%D1%82%D0%B5%D1%80%D0%B8%D0%B9_%D0%A1%D1%82%D1%8C%D1%8E%D0%B4%D0%B5%D0%BD%D1%82%D0%B0). *</font>
+
+#### Средний чек
+```{r}
+# графики по городам
+ggplot(sample_by_user, aes(Stay_In_Current_City_Years, avg_purch_thous, col = Stay_In_Current_City_Years))+
+  geom_boxplot()+
+  #facet_grid(Gender~Marital_Status)+
+  stat_summary(fun.data = fun_mean_cur, geom="text", vjust=-0.2, cex = 2.8)+
+  scale_y_continuous(name = "Average check")+
+  #theme(plot. = element_text(size = 5))+
+  labs(title = "Средний чек по количеству лет в городе (Рис. 17)")
+```
+<font size = "1">*Тест Стьюдента показывает, что всё же различия значимые, так как p-value -- `r round(t.test(sapply(levels(sample_by_user$Stay_In_Current_City_Years),function(x) mean(sample_by_user$avg_purch_thous[sample_by_user$Stay_In_Current_City_Years == x])))$p.value, digits = 3)`. [Подробнее о тесте](https://ru.wikipedia.org/wiki/T-%D0%9A%D1%80%D0%B8%D1%82%D0%B5%D1%80%D0%B8%D0%B9_%D0%A1%D1%82%D1%8C%D1%8E%D0%B4%D0%B5%D0%BD%D1%82%D0%B0). *</font>
+
+### Самая привлекательная аудитория в чёрную пятницу {#audience}
+Итак, мы подошли к самому главному -- на кого стоило бы таргетировать свою рекламу с точки зрения полученных денег? **Графики ниже интерактивные**. Вы можете выбрать нужную возрастную категорию:
+```{r}
+# выявляем самую платёжеспособную аудиторию
+ggplot(sample_by_cities, aes(Age, sum_p_thous, fill = Age))+
+  geom_col(position = position_dodge(0.6))+
+  facet_grid(City_Category~Gender+Marital_Status)+
+  #stat_summary(fun.data = fun_mean_cur, geom="text", hjust = -0.5, vjust = 0.5, position = position_dodge(0.6), col = 'black', angle = 90,  size = 2.5)+
+  theme(legend.position='bottom', axis.text = element_text(size = 6), strip.text.x = element_text(size = 6))+
+  scale_x_discrete(name = "Возраст")+
+  scale_y_continuous(name = "Сумма покупок", breaks = seq(0, 1.5e05, by = 2e4), limits = c(0, 1.5e05))+
+  scale_fill_discrete(guide = F)+
+  labs(title = "Наиболее платёжеспособная аудитория (Рис. 18)")
+
+```
+
+На графике (Рис. 18) мы видим, что с точки зрения выручки самая привлекательная для нас аудитория -- неженатые мужчины 26-35 лет из города категории B.
+
+Убедимся в этом и для удобства упорядочим график и выстроим все категории людей в единую линию:
+```{r}
+final_graph <- sample_by_cities %>% 
+  group_by(Marital_Status, Gender, Age, City_Category) %>%
+  mutate(users = paste(Marital_Status, Gender, Age, City_Category, sep = ", ")) %>%
+  summarise(users = users[1], 
+            sum_p_thous = sum(sum_p_thous), 
+            avg_purch_per_order = mean(avg_purch_per_order)) %>% 
+  ungroup() %>% 
+  select(users, sum_p_thous, avg_purch_per_order)
+
+final_graph$users <- reorder(final_graph$users, final_graph$sum_p_thous, function(x) -max(x))
+
+gf <- ggplot(final_graph, aes(x = users, y = sum_p_thous, fill = users))+
+  geom_col(position = "identity")+
+  theme(axis.text.x = element_blank())+
+  scale_x_discrete(name = "Группа пользователей")+
+  scale_y_continuous(name = "Сумма покупок", breaks = seq(0, 1.5e06, by = 1e4))+
+  scale_fill_discrete(guide = F)+
+  labs(title = "Наиболее платёжеспособная аудитория (Рис. 19)")
+
+ggplotly(gf, width = 950, height = 700)
+```
+
+C точки зрения абсолютного дохода самыми привлекательными являются: **`r levels(final_graph$users)[1:3]`**.
+
+Если же смотреть на метрику "доход на пользователя", которая учитывает то, сколько людей находится в каждом типе города, то увидим другую картину:
+```{r}
+final_graph$users <- reorder(final_graph$users, final_graph$avg_purch_per_order, function(x) -max(x))
+
+gf <- ggplot(final_graph, aes(x = users, y = avg_purch_per_order, fill = users))+
+  geom_col(position = "identity")+
+  theme(axis.text.x = element_blank())+
+  scale_x_discrete(name = "Группа пользователей")+
+  scale_y_continuous(name = "Сумма покупок", breaks = seq(0, 20, by = 1))+
+  scale_fill_discrete(guide = F)+
+  labs(title = "Наиболее платёжеспособная аудитория (Рис. 20)")
+
+ggplotly(gf, width = 950, height = 700)
+```
+
+Разрыв между категориями людей уже не такой большой, как в количестве покупок. И наиболее привлекательными являются  категории: **`r final_graph$users[1:3]`**. 
+
+Холостые мужчины находятся лишь на `r which(levels(final_graph$users) == "Not Married, Male, 26-35, B")` месте.
+
+Если бы магазин привлёк больше таких пользователей, то в идеальном случае мог бы получить  **на `r (final_graph$sum_p_thous[final_graph$users == "Not Married, Male, 26-35, B"]/final_graph$avg_purch_per_order[final_graph$users == "Not Married, Male, 26-35, B"]*final_graph$avg_purch_per_order[final_graph$users == levels(final_graph$users)[1]] - final_graph$sum_p_thous[final_graph$users == "Not Married, Male, 26-35, B"])*1000` больше дохода**. Конечно, это не учитывает изменение среднего чека при увеличении аудитории и многих других факторов.
+
+## Выводы
+
+В чёрную пятницу:
+
+1. Холостые люди тратят больше, чем люди в браке.
+2. Мужчины покупают больше товаров с более высоким средним чеком.
+3. Жители городов класса B тратят больше всего денег.
+4. Наименее привлекательные с точки зрения среднего чека -- жители городов группы C.
+5. Самые привлекательные пользователи по метрике "доход на пользователя" -- неженатые мужчины 51-55 лет из городов типа C.
+6. Самые привлекательные пользователи с точки зрения абсолютного дохода -- неженатые мужчины 26-35 лет из городов типа B.
+
