@@ -3,7 +3,6 @@
 .RData
 .Ruserdata
 .Rproj.user
-.DS_Store
 Projects/Black Friday/IMG
 Projects/Black Friday/rsconnect
 Projects/BlackFridayAnalysis_cache
@@ -13,7 +12,6 @@ Projects/First analysis/GPDataAnalysis_cache
 Projects/First analysis/GPDataAnalysis_files
 Projects/Investigation RLMS/First_Science_Investigation_cache
 Projects/Investigation RLMS/First_Science_Investigation_files
-.DS_Store
 *.RData
 *.rdb
 *.rdx
