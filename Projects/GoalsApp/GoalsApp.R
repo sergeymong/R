@@ -58,7 +58,7 @@ read_sheet <- function(reg_table, name){
 
 # START MODULE HABITS STREAK
 calculate_streaks <- function(data){
-  data <- data[-c(1:6)]
+  data <- data[-c(1:7)]
   col_limit <- which(as.Date(names(data), tryFormats = "%d/%m/%Y") == (Sys.Date()-1))
   for_streaks <- data[1:col_limit]
   streaks <- lapply(1:nrow(for_streaks), function(row_x) rbind(rle(for_streaks[row_x, ])$values, 
@@ -84,6 +84,7 @@ calculate_streaks <- function(data){
   result <- result[c(2, 3, 1)]
   result
 }
+
 write_habits_result <- function(reg_table, result){
   anchors <- c("C2", "D2", "E2")
   for (i in 1:length(anchors)){
