@@ -12,47 +12,66 @@ goals$ws[c(3:5)]
 Tasks <- goals %>% gs_read(ws = "Tasks", range = cell_rows(1:goals$ws$row_extent[2])) # get nedeed for us data
 Habits <- goals %>% gs_read(ws = "Habits", range = cell_rows(1:goals$ws$row_extent[4])) # get nedeed for us data
 
-as.Date(paste0(names(Habits)[6],"/2019"))
+# # START MODULE SPRINTS
+# sprints <- read_sheet(goals_table, 'Sprint')
+# tasks <- read_sheet(goals_table, "Tasks")
+# 
+# add_total_work_time <- function(sleep=9, sprint_data){
+#   sprint_data$`Total work time` <-  hms::hms(period_to_seconds(days(dmy(sprint_data$`End Date`) - dmy(sprint_data$`Start Date`))) -
+#                                                period_to_seconds(days(dmy(sprint_data$`End Date`) - dmy(sprint_data$`Start Date`)))*sleep/24)
+#   sprint_data
+# }
+# s <- add_total_work_time(sprint_data = sprints)
+# 
+# t <- tasks
+# t$Estimate <- ifelse(is.na(t$Estimate), "00:00:00", t$Estimate)
+# t$Estimate <- hms::hms(period_to_seconds(hms(t$Estimate)))
+# t$Actual[12] <- hms::hms(0)
+# t_es <- t %>% 
+#   group_by(Sprint) %>% 
+#   filter(!is.na(Sprint)) %>% 
+#   summarise(Estimate = sum(Estimate),
+#             Actual = sum(Actual),
+#             Tasks = n())
+# 
+# # mutate will be better
+# s <- left_join(s, t_es, by = c('Sprint ID' = 'Sprint'))
 
-rowSums(Habits[-c(2:5)])
+# Estimate time
+# Сумма оцениваемого времени по всем задачам спринта
+# Actual Time
+# Сколькоо времени потратил по факту
+# Tasks start
+# Сколько было задач в спринте в начале
+# Tasks end
+# Сколько было задач в спринте по завершении
+# Tasks wasted
+# Сколько задач перенесено на след.спринт
+# Efficiency
+# Время в развитии и работе относительно нецелевого (процент)
+# Time of working
+# Сколько часов проработал (категория)
+# Time of learning
+# Сколько часов проучился (категория)
+# Time of practicing
+# Сколько часов попрактиковался (категория)
+# Time wasted
+# Чистое нецелевое время
+# Completion
+# Завершён ли спринт
+# END MODULE SPRINTS
 
-dmy(names(Habits)[6]) - today()
-Habits[1,c(8:35)] <- FALSE
-Habits[1,c(36:148)] <- T
-some <- rle(Habits[1,-c(1:5)])
-results <- some$values
-results <- rbind(results, some$lengths)
-x <- as.numeric(as.Date(names(results)[2], tryFormats = "%d/%m/%Y") - Sys.Date())
+# RUN GOALS END
+# 
+# predictions (unsuccesful)
+# forlm <- tasks %>% filter(Status == "Done")
+# model <- lm(data = forlm, period_to_seconds(hms(Estimate)) ~ period_to_seconds(hms(forlm$Actual))+`Task priority`)
+# 
+# summary(model)
+# 
+# tasks$prediction_Estimate <- predict(model, newdata = tasks)
+# 
+# 
+# period_to_seconds(hms(forlm$Actual))
 
-rle
-
-
-
-# Create Toggl Timesheet
-set_toggl_api_token("611ee61412d25f39054c141e99d27a77")
-
-data <- get_time_entries(since = Sys.time()- lubridate::weeks(1), until = Sys.time())
-work_data <- data %>% group_by(project_name, description) %>% summarise(duration = sum(duration))
-work_data$duration <- seconds_to_period(work_data$duration)
-work_data$time <- paste0(hour(work_data$duration) + day(work_data$duration)*24,":", minute(work_data$duration),":", second(work_data$duration))
-work_data <- work_data[-3]
-#work_data$time <- ifelse(is.na(times(work_data$time)), work_data$time, times(work_data$time))
-
-
-
-# rewrite 
-some <- left_join(Tasks, work_data, by=c("PROJECT" = "project_name", "NAME" = "description"))
-some[is.na(some$time),] <- "00:00:00"
-
-
-some$ACTUAL <- ifelse(is.na(some$time), as.character(some$ACTUAL), some$time)
-
-
-goals %>% gs_edit_cells(ws = "Tasks", anchor = "K2", input = some$ACTUAL)
-
-
-
-
-
-
-
+#cronR::cron_add(cronR::cron_rscript('GoalsApp.R'), frequency = 'daily', at = '17:30')
