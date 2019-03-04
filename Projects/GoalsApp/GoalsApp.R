@@ -84,6 +84,7 @@ calculate_streaks <- function(data){
   result <- result[c(2, 3, 1)]
   result
 }
+calculate_streaks(habits)
 
 write_habits_result <- function(reg_table, result){
   anchors <- c("C2", "D2", "E2")
