@@ -47,3 +47,11 @@ vignettes/*.pdf
 *.utf8.md
 *.knit.md
 .Rproj.user
+
+*.gz
+
+*.csv
+
+*.json
+
+*.html
